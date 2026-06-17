@@ -112,6 +112,23 @@ const AR_BENCH = 9.56;
 const META_V = 'v21.0';
 const META_ACCT = 'act_631853038833781';
 
+/* ── GA4 Fallback — se sobreescribe con datos del Sheet al correr actualizarGA4() ── */
+const GA4_CANALES_FB = [
+  {canal:'Direct',         usuarios:189, nuevos:126, ventas:19, ingresos:2730000},
+  {canal:'Cross-network',  usuarios:163, nuevos:146, ventas:9,  ingresos:2218000},
+  {canal:'Paid Search',    usuarios:20,  nuevos:12,  ventas:5,  ingresos:256250},
+  {canal:'Organic Search', usuarios:140, nuevos:127, ventas:4,  ingresos:420000},
+  {canal:'Organic Social', usuarios:22,  nuevos:15,  ventas:2,  ingresos:105000},
+  {canal:'Paid Social',    usuarios:347, nuevos:338, ventas:0,  ingresos:0},
+];
+const GA4_CIUDADES_FB = [
+  {ciudad:'Bogotá',          usuarios:177, ventas:11, ingresos:1166250},
+  {ciudad:'Medellín',        usuarios:120, ventas:7,  ingresos:695000},
+  {ciudad:'Envigado',        usuarios:12,  ventas:3,  ingresos:1380000},
+  {ciudad:'Bucaramanga',     usuarios:19,  ventas:2,  ingresos:270000},
+  {ciudad:'Barrancabermeja', usuarios:3,   ventas:3,  ingresos:180000},
+];
+
 /* ── Helpers ────────────────────────────────────────────────── */
 function nv(v){ return parseFloat(String(v||'0').replace(/\./g,'').replace(',','.'))||0; }
 function usd(clp){ return clp/TC; }
@@ -378,7 +395,7 @@ function renderAnuncios(anData, elId){
 }
 
 /* ── Render ─────────────────────────────────────────────────── */
-function render(actual, anterior, estado, resumen, anData, gaData, ga4Sheet){
+function render(actual, anterior, estado, resumen, anData, gaData, ga4Sheet, ga4Ciudades){
 
   /* Campañas mes actual */
   const camps = parseCampañas(actual);
@@ -467,19 +484,31 @@ ${(()=>{
   const paceSes = dia > 0 ? Math.round(ses / dia * diasMes) : 0;
   const paceVen = dia > 0 ? Math.round(ven / dia * diasMes) : 0;
 
-  // Top canal por ventas
-  const GA4_CANALES_STD = ['organic search','direct','paid social','organic social','email','referral','cross-network','unassigned','affiliates','display','paid search'];
-  const soloCanales = canales.filter(r => GA4_CANALES_STD.includes((r[0]||'').toLowerCase()));
-  const topCanal = (soloCanales.length ? soloCanales : canales).filter(r=>parseInt(r[3])>0).sort((a,b)=>parseInt(b[3])-parseInt(a[3]))[0];
-  const topNombre = topCanal ? topCanal[0].replace('Organic ','').replace('Cross-network','Paid Social Ads') : '—';
-  const topVentas = topCanal ? (parseInt(topCanal[3])||0) : 0;
+  // Canal #1 por ventas — Sheet GA4 si tiene datos frescos, sino fallback
+  const GA4_STD = ['organic search','direct','paid social','organic social','email','referral','cross-network','unassigned','affiliates','display','paid search'];
+  const canalRows = canales.filter(r => GA4_STD.includes((r[0]||'').toLowerCase()) && parseInt(r[3])>0);
+  let topNombre, topVentas;
+  if(canalRows.length){
+    const top = canalRows.sort((a,b)=>parseInt(b[3])-parseInt(a[3]))[0];
+    topNombre = top[0]; topVentas = parseInt(top[3])||0;
+  } else {
+    const fb = GA4_CANALES_FB.slice().sort((a,b)=>b.ventas-a.ventas)[0]||{};
+    topNombre = fb.canal||'—'; topVentas = fb.ventas||0;
+  }
 
-  // Top ciudad por ventas (filas que NO son canales estándar de GA4)
-  const ciudades = canales.filter(r => !GA4_CANALES_STD.includes((r[0]||'').toLowerCase()));
-  const topCiudad = ciudades.filter(r=>parseInt(r[3])>0).sort((a,b)=>parseInt(b[3])-parseInt(a[3]))[0];
-  const topCiudadNombre = topCiudad ? topCiudad[0] : '—';
-  const topCiudadVen = topCiudad ? (parseInt(topCiudad[3])||0) : 0;
-  const topCiudadCR = (topCiudad && parseInt(topCiudad[1])>0) ? ((parseInt(topCiudad[3])/parseInt(topCiudad[1]))*100).toFixed(1) : '0';
+  // Top ciudad — desde pestaña GA4_Ciudades del Sheet, sino fallback
+  let topCiudadNombre, topCiudadVen, topCiudadCOP;
+  if(ga4Ciudades && ga4Ciudades.length > 1){
+    const cdRows = ga4Ciudades.slice(1).filter(r=>r[0]&&r[0]!=='(not set)'&&parseInt(r[2])>0);
+    cdRows.sort((a,b)=>parseInt(b[2])-parseInt(a[2]));
+    const cd = cdRows[0]||{};
+    topCiudadNombre = cd[0]||'—'; topCiudadVen = parseInt(cd[2])||0;
+    topCiudadCOP = cd[3] ? '$'+(parseInt(cd[3])/1000).toFixed(0)+'k' : '—';
+  } else {
+    const fb = GA4_CIUDADES_FB.slice().sort((a,b)=>b.ventas-a.ventas)[0]||{};
+    topCiudadNombre = fb.ciudad||'—'; topCiudadVen = fb.ventas||0;
+    topCiudadCOP = fb.ingresos ? '$'+(fb.ingresos/1000).toFixed(0)+'k' : '—';
+  }
 
   const ts = ga4Meta[1] ? ga4Meta[1].replace('Actualizado: ','') : '';
   const tsCorto = ts ? new Date(ts).toLocaleString('es-CO',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
@@ -490,8 +519,8 @@ ${(()=>{
     <div class="wcard"><div class="wcard-lbl">Sesiones</div><div class="wcard-val">${ses.toLocaleString('es-CO')}</div><div class="wcard-sub">pace ~${paceSes.toLocaleString('es-CO')}/mes</div></div>
     <div class="wcard"><div class="wcard-lbl">Usuarios</div><div class="wcard-val">${usr.toLocaleString('es-CO')}</div></div>
     <div class="wcard"><div class="wcard-lbl">Ventas ${mesNombre()}</div><div class="wcard-val" style="color:#27500A">${ven}</div><div class="wcard-sub">CR ${crPct}% · pace ~${paceVen}/mes</div></div>
-    <div class="wcard"><div class="wcard-lbl">Canal #1 Ventas</div><div class="wcard-val" style="font-size:13px">${topNombre}</div><div class="wcard-sub">${topVentas} ventas</div></div>
-    <div class="wcard"><div class="wcard-lbl">Top Ciudad</div><div class="wcard-val" style="font-size:13px">${topCiudadNombre}</div><div class="wcard-sub">${topCiudadNombre!=='—'?topCiudadVen+' ventas · CR '+topCiudadCR+'%':'sin datos en Sheet'}</div></div>
+    <div class="wcard"><div class="wcard-lbl">Canal #1 Ventas</div><div class="wcard-val" style="font-size:13px;color:#27500A">${topNombre}</div><div class="wcard-sub">${topVentas} ventas</div></div>
+    <div class="wcard"><div class="wcard-lbl">Top Ciudad</div><div class="wcard-val" style="font-size:13px;color:#27500A">${topCiudadNombre}</div><div class="wcard-sub">${topCiudadVen} ventas · ${topCiudadCOP} COP</div></div>
   </div>
 </div>`;
 })()}
@@ -795,16 +824,17 @@ ${(totalUSDPrev > 0 || totalAlcancePrev > 0) ? `
 /* ── Main ──────────────────────────────────────────────────── */
 async function main(){
   try {
-    const [actual, anterior, estado, resumen, anData, gaData, ga4Sheet] = await Promise.all([
+    const [actual, anterior, estado, resumen, anData, gaData, ga4Sheet, ga4Ciudades] = await Promise.all([
       fetchSheet('Mes Actual'),
       fetchSheet('Mes Anterior').catch(()=>null),
       fetchSheet('Estado').catch(()=>null),
       fetchSheet('Resumen').catch(()=>null),
       fetchSheet('anuncios').catch(()=>null),
       fetchSheet('Google Ads').catch(()=>null),
-      fetchSheet('GA4').catch(()=>null)
+      fetchSheet('GA4').catch(()=>null),
+      fetchSheet('GA4_Ciudades').catch(()=>null)
     ]);
-    render(actual, anterior, estado, resumen, anData, gaData, ga4Sheet);
+    render(actual, anterior, estado, resumen, anData, gaData, ga4Sheet, ga4Ciudades);
   } catch(e){
     document.getElementById('root').innerHTML = `
       <div style="background:#fff3e0;border:1px solid #ffe0b2;border-radius:10px;padding:16px 20px;color:#e65100">
